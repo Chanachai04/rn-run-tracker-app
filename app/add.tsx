@@ -1,5 +1,8 @@
+import { supabase } from "@/service/subabase";
 import { Ionicons } from "@expo/vector-icons";
+import { decode } from "base64-arraybuffer";
 import * as ImagePicker from "expo-image-picker";
+import { useRouter } from "expo-router";
 import React, { useState } from "react";
 import {
   Alert,
@@ -16,10 +19,10 @@ import {
 export default function Add() {
   const [location, setLocation] = useState("");
   const [distance, setDistance] = useState("");
-  const [timeOfDay, setTimeOfDay] = useState("");
+  const [timeOfDay, setTimeOfDay] = useState("เช้า");
   const [image, setImage] = useState<string | null>(null);
   const [base64Image, setBase64Image] = useState<string | null>(null);
-
+  const router = useRouter();
   const handleTakePhoto = async () => {
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
     if (status !== "granted") {
@@ -36,6 +39,40 @@ export default function Add() {
       setImage(result.assets[0].uri);
       setBase64Image(result.assets[0].base64 || null);
     }
+  };
+
+  const handleSaveToSupabase = async () => {
+    if (!location || !distance || !image) {
+      Alert.alert("คำเตือน", "กรุณาป้อนข้อมูลให้ครบ และเลือกรูปภาพ");
+      return;
+    }
+
+    let image_url = null;
+    const fileName = `img_${Date.now()}.jpg`;
+    const { error: uploadError } = await supabase.storage
+      .from("runs_bk")
+      .upload(fileName, decode(base64Image!), { contentType: "image/jpeg" });
+
+    if (uploadError) throw uploadError;
+
+    image_url = await supabase.storage.from("runs_bk").getPublicUrl(fileName)
+      .data.publicUrl;
+
+    const { error: insertError } = await supabase.from("runs").insert({
+      location: location,
+      distance: distance,
+      time_of_day: timeOfDay,
+      run_date: new Date().toISOString().split("T")[0],
+      image_url: image_url,
+    });
+
+    if (insertError) {
+      Alert.alert("คำเตือน", "พบปํญหาในการบันทึกข้อมูล กรุณาลองใหม่");
+      return;
+    }
+
+    Alert.alert("สำเร็จ", "บันทึกข้อมูลเรียนร้อย");
+    router.back();
   };
   return (
     <KeyboardAvoidingView
@@ -101,7 +138,7 @@ export default function Add() {
             </View>
           )}
         </TouchableOpacity>
-        <TouchableOpacity style={styles.saveBtn}>
+        <TouchableOpacity style={styles.saveBtn} onPress={handleSaveToSupabase}>
           <Text style={{ fontFamily: "Kanit_700Bold", color: "#fff" }}>
             บันทึกข้อมูล
           </Text>
