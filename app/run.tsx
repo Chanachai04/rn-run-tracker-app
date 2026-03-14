@@ -17,7 +17,22 @@ const runing = require("@/assets/images/runlogo.png");
 export default function Run() {
   const [runs, setRuns] = useState<RunsType[]>([]);
   const fetchRuns = async () => {
-    const { data, error } = await supabase.from("runs").select("*");
+    // ดึง user ปัจจุบันก่อน เพื่อให้แต่ละคนเห็นเฉพาะข้อมูลของตัวเอง
+    const { data: userData, error: userError } = await supabase.auth.getUser();
+
+    if (userError || !userData?.user) {
+      Alert.alert("คำเตือน", "กรุณาเข้าสู่ระบบใหม่");
+      router.replace("/login");
+      return;
+    }
+
+    const userId = userData.user.id;
+
+    const { data, error } = await supabase
+      .from("runs")
+      .select("*")
+      .eq("user_id", userId)
+      .order("run_date", { ascending: false });
 
     if (error) {
       Alert.alert("คำเตือน", "ไม่สามารถดึงข้อมูลรายการวิ่งได้ กรุณาลองใหม่");

@@ -47,6 +47,17 @@ export default function Add() {
       return;
     }
 
+    // ดึง user ปัจจุบันเพื่อผูกข้อมูลวิ่งกับเจ้าของ
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser();
+
+    if (userError || !user) {
+      Alert.alert("คำเตือน", "ไม่พบข้อมูลผู้ใช้ กรุณาเข้าสู่ระบบใหม่");
+      return;
+    }
+
     let image_url = null;
     const fileName = `img_${Date.now()}.jpg`;
     const { error: uploadError } = await supabase.storage
@@ -64,6 +75,7 @@ export default function Add() {
       time_of_day: timeOfDay,
       run_date: new Date().toISOString().split("T")[0],
       image_url: image_url,
+      user_id: user.id,
     });
 
     if (insertError) {

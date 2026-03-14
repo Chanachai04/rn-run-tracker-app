@@ -1,7 +1,4 @@
-import { Link, router } from "expo-router";
-import { useState } from "react";
-import * as WebBrowser from "expo-web-browser";
-import { makeRedirectUri } from "expo-auth-session";
+import { useEffect, useState } from "react";
 import {
   Alert,
   KeyboardAvoidingView,
@@ -10,28 +7,71 @@ import {
   SafeAreaView,
   StyleSheet,
   Text,
-  TextInput,
   View,
   ActivityIndicator,
 } from "react-native";
-// Import Icon จาก Expo
+import { router } from "expo-router";
+import * as WebBrowser from "expo-web-browser";
+import * as AuthSession from "expo-auth-session";
+import Constants from "expo-constants";
 import { FontAwesome } from "@expo/vector-icons";
 import { supabase } from "@/service/subabase";
 
 WebBrowser.maybeCompleteAuthSession();
 
 export default function Login() {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+
+  // ถ้ามี session อยู่แล้ว หรือเมื่อ login สำเร็จ ให้เด้งไปหน้า /run อัตโนมัติ
+  useEffect(() => {
+    let isMounted = true;
+
+    const checkExistingSession = async () => {
+      try {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+
+        if (!isMounted) return;
+        if (session) {
+          router.replace("/run");
+        }
+      } catch {
+        // ถ้าเช็ค session พลาด ก็ปล่อยให้ผู้ใช้เห็นหน้า login ตามปกติ
+      }
+    };
+
+    checkExistingSession();
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!isMounted) return;
+      if (session) {
+        router.replace("/run");
+      }
+    });
+
+    return () => {
+      isMounted = false;
+      subscription.unsubscribe();
+    };
+  }, []);
 
   const handleGoogleLogin = async () => {
     setLoading(true);
     try {
-      // ใช้ scheme ให้ตรงกับใน app.json
-      const redirectTo = makeRedirectUri({
-        scheme: "rnruntrackerapp",
-      });
+      // IMPORTANT:
+      // - Expo Go: ต้องใช้ Expo auth proxy URL (https://auth.expo.io/...) เพราะ redirect URL ของ Expo Go จะเป็น exp://... ซึ่งไม่เหมาะกับ Supabase allow-list
+      // - Dev build/Standalone: ใช้ custom scheme กลับเข้าแอปโดยตรง
+      const redirectTo =
+        Constants.appOwnership === "expo"
+          ? AuthSession.getRedirectUrl("login")
+          : AuthSession.makeRedirectUri({
+              scheme: "rnruntrackerapp",
+              path: "login",
+              preferLocalhost: false,
+            });
 
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: "google",
@@ -41,14 +81,37 @@ export default function Login() {
         },
       });
 
-      if (error) throw error;
+      if (error) {
+        Alert.alert(
+          "OAuth Error",
+          `${error.message}\n\nredirectTo:\n${redirectTo}\n\nappOwnership: ${Constants.appOwnership}`,
+        );
+        return;
+      }
 
       if (data?.url) {
+        // ถ้ายังเจอ requested path invalid ให้เอาค่า redirectTo ไปใส่ใน Supabase Redirect URLs ให้ตรงเป๊ะ
+        // (โดยเฉพาะตอนรันด้วย Expo Go ซึ่ง redirectTo จะเป็น https://auth.expo.io/...)
         const result = await WebBrowser.openAuthSessionAsync(
           data.url,
           redirectTo,
         );
+
+        // ถ้า Google login สำเร็จและ redirect กลับมาที่แอปแล้ว
         if (result.type === "success") {
+          // สำหรับ PKCE ต้อง exchange code -> session เพื่อให้ Supabase เก็บ session ลง storage
+          if (result.url) {
+            const { error: exchangeError } =
+              await supabase.auth.exchangeCodeForSession(result.url);
+            if (exchangeError) {
+              Alert.alert(
+                "Error",
+                `exchangeCodeForSession ล้มเหลว: ${exchangeError.message}`,
+              );
+              return;
+            }
+          }
+
           router.replace("/run");
         }
       }
@@ -61,64 +124,40 @@ export default function Login() {
 
   return (
     <SafeAreaView style={styles.screen}>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-        style={styles.container}
-      >
+      <View style={styles.container}>
+        {/* ส่วนแสดง Brand / Logo */}
         <View style={styles.brandContainer}>
+          <View style={styles.logoPlaceholder}>
+            <FontAwesome name="bolt" size={50} color="#fff" />
+          </View>
           <Text style={styles.brandTitle}>Run Tracker</Text>
           <Text style={styles.brandSubtitle}>ก้าวไปข้างหน้าในทุกๆ วัน</Text>
         </View>
 
-        <View style={styles.card}>
-          <Text style={styles.formTitle}>เข้าสู่ระบบ</Text>
+        {/* ส่วนปุ่มกด Login */}
+        <View style={styles.bottomSection}>
+          <Text style={styles.welcomeText}>ยินดีต้อนรับ</Text>
+          <Text style={styles.instructionText}>
+            เข้าสู่ระบบเพื่อบันทึกการวิ่งและติดตามสุขภาพของคุณ
+          </Text>
 
-          <TextInput
-            style={styles.input}
-            placeholder="อีเมล"
-            value={email}
-            onChangeText={setEmail}
-            autoCapitalize="none"
-            placeholderTextColor="#94a3b8"
-          />
-
-          <TextInput
-            style={styles.input}
-            placeholder="รหัสผ่าน"
-            secureTextEntry
-            value={password}
-            onChangeText={setPassword}
-            placeholderTextColor="#94a3b8"
-          />
-
-          <Pressable style={styles.primaryButton}>
-            <Text style={styles.primaryButtonText}>เข้าสู่ระบบ</Text>
-          </Pressable>
-
-          <View style={styles.dividerContainer}>
-            <View style={styles.line} />
-            <Text style={styles.orText}>หรือ</Text>
-            <View style={styles.line} />
-          </View>
-
-          {/* ปุ่ม Google แบบ UI สะอาดตา */}
           <Pressable
             style={({ pressed }) => [
               styles.googleButton,
-              pressed && { backgroundColor: "#f8fafc" },
+              pressed && { opacity: 0.8, transform: [{ scale: 0.98 }] },
             ]}
             onPress={handleGoogleLogin}
             disabled={loading}
           >
             {loading ? (
-              <ActivityIndicator color="#64748b" />
+              <ActivityIndicator color="#fff" />
             ) : (
               <View style={styles.googleContent}>
                 <FontAwesome
                   name="google"
                   size={20}
-                  color="#EA4335"
-                  style={styles.googleIcon}
+                  color="#fff"
+                  style={{ marginRight: 12 }}
                 />
                 <Text style={styles.googleButtonText}>
                   ดำเนินการต่อด้วย Google
@@ -127,82 +166,99 @@ export default function Login() {
             )}
           </Pressable>
 
-          <View style={styles.bottomRow}>
-            <Text style={styles.secondaryText}>ยังไม่มีบัญชี?</Text>
-            <Link href="/register" asChild>
-              <Pressable>
-                <Text style={styles.linkText}> สมัครสมาชิก</Text>
-              </Pressable>
-            </Link>
-          </View>
+          <Text style={styles.footerText}>
+            การเข้าสู่ระบบแสดงว่าคุณยอมรับข้อตกลงและเงื่อนไข
+          </Text>
         </View>
-      </KeyboardAvoidingView>
+      </View>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: "#f1f5f9" },
-  container: { flex: 1, paddingHorizontal: 28, justifyContent: "center" },
-  brandContainer: { alignItems: "center", marginBottom: 35 },
-  brandTitle: {
-    fontSize: 38,
-    fontWeight: "900",
-    color: "#0ea5e9",
-    letterSpacing: -1,
+  screen: {
+    flex: 1,
+    backgroundColor: "#fff",
   },
-  brandSubtitle: { fontSize: 16, color: "#64748b", marginTop: 4 },
-  card: {
-    backgroundColor: "#ffffff",
-    borderRadius: 28,
-    padding: 24,
-    shadowColor: "#000",
-    shadowOpacity: 0.05,
-    shadowRadius: 15,
-    elevation: 5,
+  container: {
+    flex: 1,
+    paddingHorizontal: 30,
+    justifyContent: "space-between",
+    paddingVertical: 50,
   },
-  formTitle: {
-    fontSize: 20,
-    fontWeight: "700",
-    marginBottom: 20,
-    color: "#0f172a",
-  },
-  input: {
-    borderWidth: 1.5,
-    borderColor: "#f1f5f9",
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 14,
-    fontSize: 16,
-    backgroundColor: "#f8fafc",
-  },
-  primaryButton: {
-    backgroundColor: "#0ea5e9",
-    borderRadius: 16,
-    paddingVertical: 18,
+  brandContainer: {
     alignItems: "center",
+    marginTop: 60,
+  },
+  logoPlaceholder: {
+    width: 100,
+    height: 100,
+    backgroundColor: "#0ea5e9",
+    borderRadius: 30,
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 20,
+    // Shadow สำหรับ iOS
+    shadowColor: "#0ea5e9",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.3,
+    shadowRadius: 20,
+    // Elevation สำหรับ Android
+    elevation: 8,
+  },
+  brandTitle: {
+    fontSize: 32,
+    fontWeight: "900",
+    color: "#0f172a",
+    letterSpacing: -0.5,
+  },
+  brandSubtitle: {
+    fontSize: 16,
+    color: "#64748b",
     marginTop: 8,
   },
-  primaryButtonText: { color: "#fff", fontWeight: "700", fontSize: 16 },
-  dividerContainer: {
+  bottomSection: {
+    width: "100%",
+    alignItems: "center",
+  },
+  welcomeText: {
+    fontSize: 24,
+    fontWeight: "700",
+    color: "#0f172a",
+    marginBottom: 10,
+  },
+  instructionText: {
+    fontSize: 15,
+    color: "#64748b",
+    textAlign: "center",
+    marginBottom: 40,
+    lineHeight: 22,
+  },
+  googleButton: {
+    backgroundColor: "#0ea5e9", // ใช้สีหลักของแอปเพื่อให้ดูเป็น Action หลัก
+    width: "100%",
+    borderRadius: 20,
+    paddingVertical: 18,
+    alignItems: "center",
+    shadowColor: "#0ea5e9",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 10,
+    elevation: 4,
+  },
+  googleContent: {
     flexDirection: "row",
     alignItems: "center",
-    marginVertical: 25,
   },
-  line: { flex: 1, height: 1, backgroundColor: "#f1f5f9" },
-  orText: { marginHorizontal: 12, color: "#94a3b8", fontSize: 14 },
-  googleButton: {
-    backgroundColor: "#ffffff",
-    borderWidth: 1.5,
-    borderColor: "#e2e8f0",
-    borderRadius: 16,
-    paddingVertical: 16,
-    alignItems: "center",
+  googleButtonText: {
+    color: "#fff",
+    fontWeight: "700",
+    fontSize: 17,
   },
-  googleContent: { flexDirection: "row", alignItems: "center" },
-  googleIcon: { marginRight: 12 },
-  googleButtonText: { color: "#334155", fontWeight: "600", fontSize: 16 },
-  bottomRow: { flexDirection: "row", justifyContent: "center", marginTop: 24 },
-  secondaryText: { color: "#64748b" },
-  linkText: { color: "#0ea5e9", fontWeight: "700" },
+  footerText: {
+    marginTop: 25,
+    fontSize: 12,
+    color: "#94a3b8",
+    textAlign: "center",
+  },
 });
