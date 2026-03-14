@@ -5,7 +5,7 @@ const runing = require("@/assets/images/runlogo.png");
 export default function Index() {
   useEffect(() => {
     const timer = setTimeout(() => {
-      router.replace("/run");
+      router.replace("/login");
     }, 3000);
   }, []);
   return (
