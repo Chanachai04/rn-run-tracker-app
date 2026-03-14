@@ -38,7 +38,18 @@ export default function Login() {
 
         if (result.type === "success") {
           const { url } = result;
-          router.push("/run");
+          const {
+            data: { user },
+          } = await supabase.auth.getUser();
+
+          console.log("My user: ", user);
+          if (user) {
+            router.replace({
+              pathname: "/run",
+              params: { uid: user.id },
+            });
+            console.log("Login Success");
+          }
         }
       }
     } catch (error) {
