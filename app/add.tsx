@@ -1,8 +1,8 @@
-import { supabase } from "@/service/subabase";
+import { supabase } from "@/service/supabase";
 import { Ionicons } from "@expo/vector-icons";
 import { decode } from "base64-arraybuffer";
 import * as ImagePicker from "expo-image-picker";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useState } from "react";
 import {
   Alert,
@@ -23,6 +23,7 @@ export default function Add() {
   const [image, setImage] = useState<string | null>(null);
   const [base64Image, setBase64Image] = useState<string | null>(null);
   const router = useRouter();
+  const { uid } = useLocalSearchParams();
   const handleTakePhoto = async () => {
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
     if (status !== "granted") {
@@ -46,7 +47,6 @@ export default function Add() {
       Alert.alert("คำเตือน", "กรุณาป้อนข้อมูลให้ครบ และเลือกรูปภาพ");
       return;
     }
-
     let image_url = null;
     const fileName = `img_${Date.now()}.jpg`;
     const { error: uploadError } = await supabase.storage
@@ -64,6 +64,7 @@ export default function Add() {
       time_of_day: timeOfDay,
       run_date: new Date().toISOString().split("T")[0],
       image_url: image_url,
+      user_id: uid,
     });
 
     if (insertError) {

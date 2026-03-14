@@ -6,11 +6,11 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { supabase } from "@/service/subabase";
+import { supabase } from "@/service/supabase";
 import * as WebBrowser from "expo-web-browser";
 import { makeRedirectUri } from "expo-auth-session";
 import { router } from "expo-router";
-
+import * as QueryString from "query-string";
 WebBrowser.maybeCompleteAuthSession();
 
 export default function Login() {
@@ -19,7 +19,7 @@ export default function Login() {
       const redirectUri = makeRedirectUri({
         scheme: "rnruntrackerapp",
       });
-      console.log("My Redirect URI:", redirectUri);
+
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: {
@@ -38,17 +38,29 @@ export default function Login() {
 
         if (result.type === "success") {
           const { url } = result;
-          const {
-            data: { user },
-          } = await supabase.auth.getUser();
+          const params = url.split("#")[1];
+          const formData = QueryString.parse(params);
+          const access_token = formData.access_token as string;
+          const refresh_token = formData.refresh_token as string;
 
-          console.log("My user: ", user);
-          if (user) {
-            router.replace({
-              pathname: "/run",
-              params: { uid: user.id },
-            });
-            console.log("Login Success");
+          if (access_token && refresh_token) {
+            const { data: sessionData, error: sessionError } =
+              await supabase.auth.setSession({
+                access_token,
+                refresh_token,
+              });
+
+            if (sessionError) throw sessionError;
+            const {
+              data: { user },
+            } = await supabase.auth.getUser();
+
+            if (user) {
+              router.replace({
+                pathname: "/run",
+                params: { uid: user.id },
+              });
+            }
           }
         }
       }

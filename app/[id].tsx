@@ -1,7 +1,9 @@
-import { supabase } from "@/service/subabase";
+import { supabase } from "@/service/supabase";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
 import React, { useEffect, useState } from "react";
+import * as ImagePicker from "expo-image-picker";
+import { decode } from "base64-arraybuffer";
 import {
   ActivityIndicator,
   Alert,
@@ -21,6 +23,8 @@ export default function RunDetail() {
   const [timeOfDay, setTimeOfDay] = useState("เช้า");
   const [imageUrl, setImageUrl] = useState("");
   const [updating, setUpdating] = useState(false);
+  const [newImage, setNewImage] = useState<string | null>(null);
+  const [newBase64, setNewBase64] = useState<string | null>(null);
   useEffect(() => {
     fetchRun();
   }, []);
@@ -38,42 +42,82 @@ export default function RunDetail() {
     setTimeOfDay(data.time_of_day);
     setImageUrl(data.image_url);
   };
+  const handlePickImage = async () => {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      allowsEditing: true,
+      aspect: [4, 3],
+      quality: 0.5,
+      base64: true,
+    });
+
+    if (!result.canceled) {
+      setNewImage(result.assets[0].uri);
+      setNewBase64(result.assets[0].base64 || null);
+    }
+  };
 
   const handleUpdateRunClick = async () => {
-    Alert.alert(
-      "แก้ไขรายการจริง",
-      "คุณแน่ใจหรือไม่ว่าต้องการแก้ไขรายการวิ่งนี้",
-      [
-        { text: "ยกเลิก", style: "cancel" },
-        {
-          text: "แก้จริง",
-          style: "destructive",
-          onPress: async () => {
-            if (!location || !distance) {
-              Alert.alert("คำเตือน", "กรุณาป้อนข้อมูลที่จะแก้ไขให้ครบ");
-              return;
+    Alert.alert("แก้ไขรายการ", "คุณแน่ใจหรือไม่ว่าต้องการแก้ไขข้อมูลนี้", [
+      { text: "ยกเลิก", style: "cancel" },
+      {
+        text: "ตกลง",
+        onPress: async () => {
+          try {
+            setUpdating(true);
+            let finalImageUrl = imageUrl;
+
+            // ถ้ามีการเลือกรูปใหม่
+            if (newBase64) {
+              const fileName = `img_${Date.now()}.jpg`;
+
+              // 1. อัปโหลดรูปใหม่
+              const { error: uploadError } = await supabase.storage
+                .from("runs_bk")
+                .upload(fileName, decode(newBase64), {
+                  contentType: "image/jpeg",
+                });
+
+              if (uploadError) throw uploadError;
+
+              // 2. ดึง URL ใหม่
+              const { data: urlData } = supabase.storage
+                .from("runs_bk")
+                .getPublicUrl(fileName);
+
+              // 3. ลบรูปเก่าออกจาก Storage เพื่อไม่ให้เปลืองพื้นที่
+              if (imageUrl) {
+                const oldFileName = imageUrl.split("/").pop();
+                if (oldFileName) {
+                  await supabase.storage.from("runs_bk").remove([oldFileName]);
+                }
+              }
+
+              finalImageUrl = urlData.publicUrl;
             }
+
+            // อัปเดตข้อมูลลง Database
             const { error: updateError } = await supabase
               .from("runs")
-              .update([
-                {
-                  location: location,
-                  distance: distance,
-                  time_of_day: timeOfDay,
-                },
-              ])
+              .update({
+                location,
+                distance,
+                time_of_day: timeOfDay,
+                image_url: finalImageUrl,
+              })
               .eq("id", id);
 
-            if (updateError) {
-              Alert.alert("คำเตือน", "พบปัญหาในการบันทึกข้อมูล กรุณาลองใหม่");
-              return;
-            }
-            Alert.alert("ผลการทำงาน", "แก้ไขรายการวิ่งเรียบร้อย");
+            if (updateError) throw updateError;
+
+            Alert.alert("สำเร็จ", "แก้ไขข้อมูลเรียบร้อย");
             router.back();
-          },
+          } catch (error: any) {
+            Alert.alert("Error", error.message);
+          } finally {
+            setUpdating(false);
+          }
         },
-      ],
-    );
+      },
+    ]);
   };
   const handleDeleteRunClick = async () => {
     Alert.alert("ลบราการวิ่ง", "คุณแน่ใจหรือไม่ว่าต้องการลบรายวิ่งนี้", [
@@ -105,18 +149,22 @@ export default function RunDetail() {
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       {/* ส่วนแสดงรูปภาพ */}
       <View style={styles.imageContainer}>
-        {imageUrl ? (
+        {newImage || imageUrl ? (
           <Image
-            source={{ uri: imageUrl }}
+            source={{ uri: newImage || imageUrl }}
             style={styles.mainImage}
             resizeMode="cover"
           />
         ) : (
           <View style={[styles.mainImage, styles.noImage]}>
             <Ionicons name="image-outline" size={60} color="#DDD" />
-            <Text style={styles.noImageText}>ไม่มีรูปภาพประกอบ</Text>
           </View>
         )}
+
+        {/* ปุ่มแก้ไขรูปภาพ (ดินสอ) */}
+        <TouchableOpacity style={styles.editImageBtn} onPress={handlePickImage}>
+          <Ionicons name="pencil" size={18} color="#FFF" />
+        </TouchableOpacity>
       </View>
 
       {/* ฟอร์มแก้ไขข้อมูล */}
@@ -216,8 +264,25 @@ const styles = StyleSheet.create({
   },
   imageContainer: {
     width: "100%",
-    height: 200,
+    height: 250,
     backgroundColor: "#EEE",
+    position: "relative",
+  },
+  editImageBtn: {
+    position: "absolute",
+    right: 15,
+    top: 15,
+    backgroundColor: "rgba(0, 122, 255, 0.8)",
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    justifyContent: "center",
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
+    elevation: 4,
   },
   mainImage: {
     width: "100%",

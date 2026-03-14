@@ -1,7 +1,8 @@
-import { supabase } from "@/service/subabase";
+import { supabase } from "@/service/supabase";
 import { RunsType } from "@/types/runstype";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useFocusEffect } from "expo-router";
+import { useLocalSearchParams } from "expo-router/build/hooks";
 import React, { useCallback, useState } from "react";
 import {
   Alert,
@@ -16,8 +17,12 @@ const runing = require("@/assets/images/runlogo.png");
 
 export default function Run() {
   const [runs, setRuns] = useState<RunsType[]>([]);
+  const { uid } = useLocalSearchParams();
   const fetchRuns = async () => {
-    const { data, error } = await supabase.from("runs").select("*");
+    const { data, error } = await supabase
+      .from("runs")
+      .select("*")
+      .eq("user_id", uid);
 
     if (error) {
       Alert.alert("คำเตือน", "ไม่สามารถดึงข้อมูลรายการวิ่งได้ กรุณาลองใหม่");
@@ -31,6 +36,18 @@ export default function Run() {
     }, []),
   );
 
+  const handleAddRunClick = async () => {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (user) {
+      router.push({
+        pathname: "/add",
+        params: { uid: user.id },
+      });
+    }
+  };
   const renderItem = ({ item }: { item: RunsType }) => (
     <TouchableOpacity
       style={styles.card}
@@ -71,10 +88,7 @@ export default function Run() {
         keyExtractor={(item) => item.id}
         renderItem={renderItem}
       />
-      <TouchableOpacity
-        style={styles.floatingBtn}
-        onPress={() => router.push("/add")}
-      >
+      <TouchableOpacity style={styles.floatingBtn} onPress={handleAddRunClick}>
         <Ionicons name="add" size={24} color="black" />
       </TouchableOpacity>
     </View>
