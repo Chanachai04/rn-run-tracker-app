@@ -1,0 +1,144 @@
+import {
+  Alert,
+  Image,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
+import { supabase } from "@/service/subabase";
+import * as WebBrowser from "expo-web-browser";
+import { makeRedirectUri } from "expo-auth-session";
+import { router } from "expo-router";
+
+WebBrowser.maybeCompleteAuthSession();
+
+export default function Login() {
+  const handleGoogleSignIn = async () => {
+    try {
+      const redirectUri = makeRedirectUri({
+        scheme: "rnruntrackerapp",
+      });
+      console.log("My Redirect URI:", redirectUri);
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo: redirectUri,
+          skipBrowserRedirect: true,
+        },
+      });
+
+      if (error) console.log("Error:", error.message);
+
+      if (data?.url) {
+        const result = await WebBrowser.openAuthSessionAsync(
+          data.url,
+          redirectUri,
+        );
+
+        if (result.type === "success") {
+          const { url } = result;
+          router.push("/run");
+        }
+      }
+    } catch (error) {
+      console.log("Error details:", error);
+      Alert.alert(
+        "เกิดข้อผิดพลาด",
+        "ไม่สามารถเข้าสู่ระบบด้วย Google ได้ กรุณาลองอีกครั้ง",
+      );
+    }
+  };
+
+  return (
+    <View style={styles.container}>
+      <Text style={styles.title}>ยินดีต้อนรับ</Text>
+      <Text style={styles.subtitle}>กรุณาเข้าสู่ระบบเพื่อใช้งานต่อ</Text>
+
+      <TouchableOpacity
+        activeOpacity={0.8}
+        style={styles.googleButton}
+        onPress={handleGoogleSignIn}
+      >
+        <View style={styles.logoContainer}>
+          <Image
+            source={require("@/assets/images/google-logo.png")}
+            style={styles.googleIcon}
+            resizeMode="contain"
+          />
+        </View>
+        <Text style={styles.buttonText}>เข้าสู่ระบบด้วย Google</Text>
+      </TouchableOpacity>
+
+      <Text style={styles.footerText}>
+        การเข้าสู่ระบบแสดงว่าคุณยอมรับ{" "}
+        <Text style={styles.link}>เงื่อนไขการใช้งาน</Text>
+      </Text>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: "#FFFFFF",
+    paddingHorizontal: 24,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  title: {
+    fontSize: 28,
+    fontWeight: "700",
+    color: "#1A1A1A",
+    marginBottom: 8,
+  },
+  subtitle: {
+    fontSize: 16,
+    color: "#666",
+    marginBottom: 40,
+  },
+  googleButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FFFFFF", // แนะนำให้ใช้พื้นหลังขาวตาม Standard ของ Google
+    width: "100%",
+    height: 56,
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    // ส่วนสำคัญ: เงา (Shadow) สำหรับ iOS และ Android
+    elevation: 3,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    borderWidth: 1,
+    borderColor: "#F0F0F0",
+  },
+  logoContainer: {
+    width: 24,
+    height: 24,
+    marginRight: 12,
+  },
+  googleIcon: {
+    width: "100%",
+    height: "100%",
+  },
+  buttonText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#444",
+    flex: 1,
+    textAlign: "center",
+    marginRight: 24, // ชดเชยพื้นที่ Icon เพื่อให้ Text อยู่ตรงกลางเป๊ะ
+  },
+  footerText: {
+    marginTop: 24,
+    fontSize: 13,
+    color: "#999",
+    textAlign: "center",
+  },
+  link: {
+    color: "#1889da",
+    fontWeight: "600",
+  },
+});

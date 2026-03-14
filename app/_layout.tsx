@@ -42,6 +42,12 @@ export default function RootLayout() {
         }}
       />
       <Stack.Screen
+        name="login"
+        options={{
+          title: "เข้าสู่ระบบ",
+        }}
+      />
+      <Stack.Screen
         name="add"
         options={{
           title: "เพิ่มรายการวิ่ง",
