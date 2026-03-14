@@ -1,7 +1,5 @@
 import { supabase } from "@/service/subabase";
 import { Ionicons } from "@expo/vector-icons";
-import { decode } from "base64-arraybuffer";
-import * as ImagePicker from "expo-image-picker";
 import { router, useLocalSearchParams } from "expo-router";
 import React, { useEffect, useState } from "react";
 import {
@@ -22,30 +20,16 @@ export default function RunDetail() {
   const [distance, setDistance] = useState("");
   const [timeOfDay, setTimeOfDay] = useState("เช้า");
   const [imageUrl, setImageUrl] = useState("");
-  const [originalImageUrl, setOriginalImageUrl] = useState("");
-  const [base64Image, setBase64Image] = useState<string | null>(null);
   const [updating, setUpdating] = useState(false);
   useEffect(() => {
     fetchRun();
   }, []);
 
   const fetchRun = async () => {
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
-
-    if (userError || !user) {
-      Alert.alert("คำเตือน", "กรุณาเข้าสู่ระบบใหม่");
-      router.replace("/login");
-      return;
-    }
-
     const { data, error } = await supabase
       .from("runs")
       .select("*")
       .eq("id", id)
-      .eq("user_id", user.id)
       .single();
     if (error) throw error;
 
@@ -53,31 +37,9 @@ export default function RunDetail() {
     setDistance(data.distance);
     setTimeOfDay(data.time_of_day);
     setImageUrl(data.image_url);
-    setOriginalImageUrl(data.image_url);
-  };
-
-  const handleChangePhoto = async () => {
-    const { status } = await ImagePicker.requestCameraPermissionsAsync();
-    if (status !== "granted") {
-      Alert.alert("คำเตือน", "ต้องการสิทธิ์เข้าถึงกล้องเพื่อเปลี่ยนรูปภาพ");
-      return;
-    }
-
-    const result = await ImagePicker.launchCameraAsync({
-      allowsEditing: true,
-      aspect: [4, 3],
-      quality: 0.5,
-      base64: true,
-    });
-
-    if (!result.canceled) {
-      setImageUrl(result.assets[0].uri);
-      setBase64Image(result.assets[0].base64 || null);
-    }
   };
 
   const handleUpdateRunClick = async () => {
-    if (updating) return;
     Alert.alert(
       "แก้ไขรายการจริง",
       "คุณแน่ใจหรือไม่ว่าต้องการแก้ไขรายการวิ่งนี้",
@@ -87,67 +49,27 @@ export default function RunDetail() {
           text: "แก้จริง",
           style: "destructive",
           onPress: async () => {
-            setUpdating(true);
             if (!location || !distance) {
               Alert.alert("คำเตือน", "กรุณาป้อนข้อมูลที่จะแก้ไขให้ครบ");
-              setUpdating(false);
               return;
             }
-            try {
-              let newImageUrl = originalImageUrl;
+            const { error: updateError } = await supabase
+              .from("runs")
+              .update([
+                {
+                  location: location,
+                  distance: distance,
+                  time_of_day: timeOfDay,
+                },
+              ])
+              .eq("id", id);
 
-              if (base64Image) {
-                const fileName = `img_${Date.now()}.jpg`;
-                const { error: uploadError } = await supabase.storage
-                  .from("runs_bk")
-                  .upload(fileName, decode(base64Image), {
-                    contentType: "image/jpeg",
-                  });
-
-                if (uploadError) {
-                  throw uploadError;
-                }
-
-                newImageUrl = supabase.storage
-                  .from("runs_bk")
-                  .getPublicUrl(fileName).data.publicUrl;
-
-                if (originalImageUrl) {
-                  await supabase.storage
-                    .from("runs_bk")
-                    .remove([originalImageUrl.split("/").pop()!]);
-                }
-              }
-
-              const { error: updateError } = await supabase
-                .from("runs")
-                .update([
-                  {
-                    location: location,
-                    distance: distance,
-                    time_of_day: timeOfDay,
-                    image_url: newImageUrl,
-                  },
-                ])
-                .eq("id", id);
-
-              if (updateError) {
-                Alert.alert(
-                  "คำเตือน",
-                  "พบปัญหาในการบันทึกข้อมูล กรุณาลองใหม่",
-                );
-                setUpdating(false);
-                return;
-              }
-              Alert.alert("ผลการทำงาน", "แก้ไขรายการวิ่งเรียบร้อย");
-              router.back();
-            } catch (error: any) {
-              Alert.alert(
-                "คำเตือน",
-                error?.message || "เกิดข้อผิดพลาด กรุณาลองใหม่",
-              );
-              setUpdating(false);
+            if (updateError) {
+              Alert.alert("คำเตือน", "พบปัญหาในการบันทึกข้อมูล กรุณาลองใหม่");
+              return;
             }
+            Alert.alert("ผลการทำงาน", "แก้ไขรายการวิ่งเรียบร้อย");
+            router.back();
           },
         },
       ],
@@ -192,21 +114,13 @@ export default function RunDetail() {
         ) : (
           <View style={[styles.mainImage, styles.noImage]}>
             <Ionicons name="image-outline" size={60} color="#DDD" />
-            <Text style={styles.noImageText}>ยังไม่มีรูปภาพประกอบ</Text>
+            <Text style={styles.noImageText}>ไม่มีรูปภาพประกอบ</Text>
           </View>
         )}
       </View>
 
       {/* ฟอร์มแก้ไขข้อมูล */}
       <View style={styles.formCard}>
-        <TouchableOpacity
-          style={styles.primaryChangePhotoButton}
-          onPress={handleChangePhoto}
-        >
-          <Ionicons name="camera-outline" size={20} color="#FFF" />
-          <Text style={styles.primaryChangePhotoText}>เปลี่ยนรูปภาพ</Text>
-        </TouchableOpacity>
-
         <Text style={styles.label}>สถานที่</Text>
         <TextInput
           style={styles.input}
@@ -308,22 +222,6 @@ const styles = StyleSheet.create({
   mainImage: {
     width: "100%",
     height: "100%",
-  },
-  primaryChangePhotoButton: {
-    marginTop: 16,
-    alignSelf: "flex-start",
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#007AFF",
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 10,
-  },
-  primaryChangePhotoText: {
-    marginLeft: 8,
-    color: "#FFF",
-    fontFamily: "Kanit_700Bold",
-    fontSize: 14,
   },
   noImage: {
     justifyContent: "center",
